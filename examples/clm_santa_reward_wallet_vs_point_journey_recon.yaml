@@ -1,0 +1,496 @@
+%YAML 1.1
+---
+dag:
+  version: v1
+  name: clm_santa_reward_wallet_vs_point_journey_recon_optimized
+  description: Monthly recon between Santa point system and DDB point_history for Point Journey data integrity
+  failure_slack_channel: "#growth-raas-alert-prod"
+  schedule_interval: "@monthly"
+  start_date: 2025-11-01 00:00:00
+  dependencies: >
+    [
+      run_importer_wallet_transactions,
+      run_importer_santa_promo_rewards,
+      run_importer_ddb_point_history
+    ] >> run_comparator
+  tags: ["SEV4", "reward-feature"]
+  environment: secure
+
+importers:
+  # Importer 1: Extract wallet transactions (Forward and Reverse)
+  - task_id: run_importer_wallet_transactions
+    notification_id: _
+    class: ImporterJob
+    spark_job_max_executors: 20
+    spark_job_timeout_mins: 60
+    #language=sql
+    sql_query: >
+      WITH date_vars AS (
+        SELECT
+          '{{ ds }}'                                                  as ds,
+          concat(date_add(last_day(add_months(to_date('{{ ds }}'), -2)), -90),
+                 ' 15:00:00')                                         as santa_from_ts,  -- OPTIMIZED: 90 days instead of 200
+          concat(date_add(last_day(add_months(to_date('{{ ds }}'), -1)), 5),
+                 ' 15:00:00')                                         as santa_until_ts,
+          date_format(add_months(to_date('{{ ds }}'), -1), 'yyyy-MM') as month_formatted
+      )
+      SELECT
+        src_user_id                                           AS customer_id,
+        dst_amount                                            AS cents,
+        date_format(created_at + interval 9 hours, 'yyyy-MM') AS grant_month,
+        'Forward'                                             AS direction,
+        'GIFT_CARD'                                           AS category
+      FROM pay2dbrsilver.wallet_db1_transaction
+      CROSS JOIN date_vars
+      WHERE
+          created_at >= date_vars.santa_from_ts
+      AND created_at < date_vars.santa_until_ts
+      AND src_account_type = 'INCOMING'
+      AND (dst_account_type = 'CASHBACK' OR (dst_account_type = 'SINK' AND dst_user_id = '53'))
+      AND date_format(created_at + interval 9 hours, 'yyyy-MM') = date_vars.month_formatted
+
+      UNION ALL
+
+      SELECT
+        src_user_id                                           AS customer_id,
+        dst_amount                                            AS cents,
+        date_format(created_at + interval 9 hours, 'yyyy-MM') AS grant_month,
+        'Reverse'                                             AS direction,
+        'GIFT_CARD'                                           AS category
+      FROM pay2dbrsilver.wallet_db1_transaction
+      CROSS JOIN date_vars
+      WHERE
+          created_at >= date_vars.santa_from_ts
+      AND created_at < date_vars.santa_until_ts
+      AND (src_account_type = 'CASHBACK' AND dst_account_type = 'GIFT_CARD')
+      AND date_format(created_at + interval 9 hours, 'yyyy-MM') = date_vars.month_formatted
+    output_dir: s3://pay2-raas-prod2-secure/importer/reward-feature/clm_santa_reward_wallet_vs_point_journey_recon_optimized/wallet_transactions/{{ ds_nodash }}
+
+  # Importer 2: Extract Santa promo rewards (raw, without categorization)
+  - task_id: run_importer_santa_promo_rewards
+    notification_id: _
+    class: ImporterJob
+    spark_job_max_executors: 30
+    spark_job_timeout_mins: 120
+    #language=sql
+    sql_query: >
+      WITH
+        date_vars AS (
+          SELECT
+            '{{ ds }}'                                                  as ds,
+            concat(date_add(last_day(add_months(to_date('{{ ds }}'), -2)), -200),
+                   ' 15:00:00')                                         as santa_from_ts,
+            concat(date_add(last_day(add_months(to_date('{{ ds }}'), -1)), 5),
+                   ' 15:00:00')                                         as santa_until_ts,
+            date_format(add_months(to_date('{{ ds }}'), -1), 'yyyy-MM') as month_formatted
+        ),
+        promo_event_reward_explode as (
+          SELECT
+            customer_id,
+            direction,
+            event_type,
+            metadata,
+            EXPLODE(MAP_VALUES(FROM_JSON(rewards, 'map<string,string>'))) AS json_reward
+          FROM pay2dbrsilver.ddb_clm_santa_promo_event_master
+          CROSS JOIN date_vars
+          WHERE
+              updated_at >= date_vars.santa_from_ts
+          AND updated_at < date_vars.santa_until_ts
+          AND direction IN ('Forward', 'Reverse')
+          AND pe_status = 3
+        ),
+        promo_reward_parsed AS (
+          SELECT
+            customer_id,
+            direction,
+            event_type,
+            FROM_JSON(metadata, 'struct<
+              paiRequestEventData:struct<paymentMethod:string>,
+              operationType:string,
+              transactionEventMetadata:struct<opaClientId:string>,
+              opaMetadata:struct<clientId:string, opaClientId:string, orderDescription:string>,
+              merchantId:string
+            >') AS parsed_metadata,
+            FROM_JSON(json_reward, 'struct<
+              credit_transaction_id:string,
+              cents:string,
+              campaign_token:string,
+              campaign_id:string,
+              wallet_type:string,
+              wallet_status:string,
+              updated_at:string,
+              metadata:struct<
+                campaignType:string,
+                displayName:string,
+                fulfillmentDate:string,
+                scratchCardMetaData:string
+              >
+            >') AS parsed_reward
+          FROM promo_event_reward_explode
+        ),
+        promo_reward AS (
+          SELECT
+            customer_id,
+            direction,
+            event_type,
+            COALESCE(parsed_metadata.paiRequestEventData.paymentMethod, '') AS m_payment_method,
+            COALESCE(parsed_metadata.operationType, '')                     AS m_operation_type,
+            COALESCE(
+                parsed_metadata.transactionEventMetadata.opaClientId,
+                parsed_metadata.opaMetadata.clientId,
+                parsed_metadata.opaMetadata.opaClientId,
+                ''
+            )                                                               AS opa_client_id,
+            COALESCE(parsed_metadata.merchantId, '')                        AS merchant_id,
+            COALESCE(parsed_metadata.opaMetadata.orderDescription, '')      AS order_description,
+            COALESCE(parsed_reward.metadata.campaignType, '')               AS m_campaign_type,
+            COALESCE(parsed_reward.metadata.displayName, '')                AS m_display_name,
+            date_format(
+                CASE
+                  WHEN parsed_reward.metadata.fulfillmentDate IS NOT NULL
+                    AND to_timestamp(parsed_reward.metadata.fulfillmentDate) > parsed_reward.updated_at
+                    THEN to_timestamp(parsed_reward.metadata.fulfillmentDate)
+                    ELSE parsed_reward.updated_at
+                END + interval 9 hours,
+                'yyyy-MM'
+            )                                                               AS grant_month,
+            parsed_reward.metadata.scratchCardMetaData                      as scratch_card_metadata,
+            parsed_reward.credit_transaction_id                             as credit_transaction_id,
+            parsed_reward.cents                                             AS cents,
+            coalesce(parsed_reward.campaign_token, '')                      AS campaign_token,
+            coalesce(parsed_reward.campaign_id, '')                         AS campaign_id,
+            coalesce(parsed_reward.wallet_type, '')                         AS wallet_type,
+            parsed_reward.wallet_status                                     AS wallet_status,
+            parsed_reward.updated_at                                        as reward_updated_at
+          FROM promo_reward_parsed
+        ),
+        promo_reward_filter AS (
+          select *
+          from promo_reward
+          CROSS JOIN date_vars
+          WHERE
+              reward_updated_at >= date_vars.santa_from_ts
+          AND reward_updated_at < date_vars.santa_until_ts
+          AND (credit_transaction_id != '<null>' OR scratch_card_metadata IS NULL)
+          AND wallet_type IN ('CASHBACK', 'LIMITED_POINTS')
+          AND wallet_status = 3
+          AND cents != 0
+          AND merchant_id != '214669354616520704'
+        )
+      SELECT
+        pe_re.customer_id,
+        pe_re.cents,
+        pe_re.grant_month,
+        pe_re.direction,
+        pe_re.campaign_token,
+        pe_re.campaign_id,
+        pe_re.event_type,
+        pe_re.m_payment_method,
+        pe_re.m_operation_type,
+        pe_re.opa_client_id,
+        pe_re.merchant_id,
+        pe_re.order_description,
+        pe_re.m_campaign_type,
+        pe_re.wallet_type,
+        cp.service_segments
+      FROM promo_reward_filter as pe_re
+             LEFT JOIN (
+        SELECT DISTINCT
+          id,
+          service_segments
+        FROM pay2dbrsilver.mcms_db_campaign
+      ) cp ON cp.id = pe_re.campaign_id
+      CROSS JOIN date_vars
+      WHERE grant_month = date_vars.month_formatted
+    output_dir: s3://pay2-raas-prod2-secure/importer/reward-feature/clm_santa_reward_wallet_vs_point_journey_recon_optimized/santa_promo_rewards/{{ ds_nodash }}
+
+  # Importer 3: Extract DDB point history
+  - task_id: run_importer_ddb_point_history
+    notification_id: _
+    class: ImporterJob
+    spark_job_max_executors: 15
+    spark_job_timeout_mins: 45
+    #language=sql
+    sql_query: >
+      WITH date_vars AS (
+        SELECT
+          date_format(add_months(to_date('{{ ds }}'), -1), 'yyyy-MM') as month_formatted
+      )
+      SELECT
+        user_id,
+        month     AS grant_month,
+        category,
+        points,
+        'Forward' as direction,
+        timestamp
+      FROM pay2dbrsilver.ddb_clm_point_history
+      CROSS JOIN date_vars
+           lateral view explode(from_json(forward_points, 'map<string,bigint>')) exploded as category, points
+      WHERE
+          campaign_key = 'POINT_JOURNEY'
+      AND type = 'BREAKDOWN'
+      AND month = date_vars.month_formatted
+      AND forward_points IS NOT NULL and forward_points <> '{}'
+
+      UNION ALL
+
+      SELECT
+        user_id,
+        month     AS grant_month,
+        category,
+        -1 * points,
+        'Reverse' as direction,
+        timestamp
+      FROM pay2dbrsilver.ddb_clm_point_history
+      CROSS JOIN date_vars
+           lateral view explode(from_json(reverse_points, 'map<string,bigint>')) exploded as category, points
+      WHERE
+          campaign_key = 'POINT_JOURNEY'
+      AND type = 'BREAKDOWN'
+      AND month = date_vars.month_formatted
+      AND reverse_points IS NOT NULL and reverse_points <> '{}'
+    output_dir: s3://pay2-raas-prod2-secure/importer/reward-feature/clm_santa_reward_wallet_vs_point_journey_recon_optimized/ddb_point_history/{{ ds_nodash }}
+
+comparator:
+  task_id: run_comparator
+  class: ComparatorJob
+  date: "{{ ds_nodash }}"
+  spark_job_max_executors: 20
+  spark_job_timeout_mins: 90
+  tables:
+    - name: "gov_campaign_mapping"
+      path: "s3://paypay-clm-resources-prod/point-journey-daas/gov_campaign_to_category_csv.csv"
+      type: "csv"
+    - name: "wallet_transactions"
+      path: "s3://pay2-raas-prod2-secure/importer/reward-feature/clm_santa_reward_wallet_vs_point_journey_recon_optimized/wallet_transactions/{{ ds_nodash }}"
+      type: "parquet"
+    - name: "santa_promo_rewards"
+      path: "s3://pay2-raas-prod2-secure/importer/reward-feature/clm_santa_reward_wallet_vs_point_journey_recon_optimized/santa_promo_rewards/{{ ds_nodash }}"
+      type: "parquet"
+    - name: "ddb_point_history"
+      path: "s3://pay2-raas-prod2-secure/importer/reward-feature/clm_santa_reward_wallet_vs_point_journey_recon_optimized/ddb_point_history/{{ ds_nodash }}"
+      type: "parquet"
+  outputs:
+    - notification_id: prod_clm_santa_reward_wallet_vs_point_journey_recon_optimized
+      output_name: santa_vs_ddb_point_journey_mismatches
+      output_path: "s3://pay2-raas-prod2-secure/comparator/reward-feature/clm_santa_reward_wallet_vs_point_journey_recon_optimized/santa_vs_ddb_magg_recon/{{ ds_nodash }}/santa_vs_ddb_point_journey_mismatches"
+      #language=sql
+      sql_query: >
+        WITH
+          santa_promo_rewards_categorized AS (
+            SELECT
+              spr.customer_id,
+              spr.cents,
+              spr.grant_month,
+              spr.direction,
+              CASE
+                WHEN lower(spr.campaign_token) LIKE '%paytoku%'                                    THEN 'SB_PAYTOKU'
+                WHEN spr.service_segments LIKE '%YPremiumSmartLogin%' OR
+                     spr.service_segments LIKE '%LYPPremiumSmartLogin%'
+                                                                                                   THEN 'SB_SUPER_PP_COUPON'
+                WHEN spr.campaign_token = '124086329670688768'                                     THEN
+                  CASE
+                    WHEN spr.order_description IN ('ソフトバンクポイントからの交換', 'SBポイントからの交換')
+                                                                          THEN 'SB_COMM_FEES'
+                    WHEN spr.order_description LIKE '%長期継続特典%'          THEN 'SB_LT_BENEFITS'
+                    WHEN spr.order_description LIKE '%子育て応援クラブ%'      THEN 'SB_PARENTING'
+                    WHEN spr.order_description LIKE 'ソフトバンクプレミアム%' AND
+                         upper(spr.order_description) NOT LIKE '%LINE%MUSIC%' THEN 'SB_ENTERTAINMENT'
+                                                                          ELSE 'SB_OTHER'
+                  END
+                WHEN lower(spr.campaign_token) IN
+                     ('pocketmoneycampaign_20241219_sb', 'pocketmoneycampaign_20241219_paytoku') THEN 'SB_OKOZUKAI'
+                WHEN COALESCE(gov_mapping.category_id, '') != ''
+                                                                                                   THEN gov_mapping.category_id
+                WHEN lower(spr.campaign_token) LIKE 'mynapoint%'                                   THEN 'MYNA_POINTS'
+                WHEN lower(spr.campaign_token) LIKE 'municipal_myna%' OR
+                     lower(spr.campaign_token) LIKE 'municipal_myna_sg%'
+                                                                                                   THEN 'MUNICIPALITY_MYNA_POINTS'
+                WHEN lower(spr.campaign_token) LIKE 'regular_benefits%'                            THEN
+                  CASE
+                    WHEN upper(spr.m_payment_method) IN ('EXTERNAL_PPPC', 'PAY_LATER_CC') THEN 'PAYPAY_STEP_REGULAR_CARD'
+                    WHEN upper(spr.m_payment_method) IN ('GOLD_EXTERNAL_PPPC', 'GOLD_PAY_LATER_CC')
+                                                                                      THEN 'PAYPAY_STEP_GOLD_CARD'
+                                                                                      ELSE 'PAYPAY_STEP_BASE'
+                  END
+                WHEN spr.event_type = 14 AND lower(spr.campaign_token) NOT LIKE '%ppcd%' AND
+                     lower(spr.campaign_token) NOT LIKE '%test%'
+                                                                                                   THEN 'PAYPAY_SCRATCH'
+                WHEN lower(spr.m_campaign_type) = 'one_to_one_coupon'
+                                                                                                   THEN 'PAYPAY_COUPON'
+                WHEN lower(spr.campaign_token) LIKE 'proportion_%' OR
+                     lower(spr.campaign_token) LIKE 'regist_paypay_%'
+                                                                                                   THEN 'PAYPAY_CAMPAIGN'
+                WHEN lower(spr.campaign_token) LIKE '%jumbo%' OR
+                     spr.campaign_id IN
+                     (118, 228, 603, 1263, 1729, 2561, 2583, 3184, 6781, 8158, 15493, 25449, 27403, 27979)
+                                                                                                   THEN 'PAYPAY_JUMBO'
+                WHEN lower(spr.campaign_token) = 'pocketmoneycampaign_20241219'
+                                                                                                   THEN 'PAYPAY_OKOZUKAI'
+                WHEN
+                  spr.opa_client_id = 'a_5w4xlyAgt0'
+                    AND spr.merchant_id NOT IN ('116278250924498944', '437545756054388736')
+                                                                                                   THEN
+                  CASE
+                    WHEN spr.merchant_id IN (
+                                         '102895974642327552', '222762378672594944',
+                                         '528493423718670336', '694751375831408640',
+                                         '721843943636615168')
+                      THEN
+                      CASE
+                        WHEN spr.wallet_type = 'LIMITED_POINTS' THEN 'LP_YJ_SHOPPING'
+                                                                ELSE 'YJ_SHOPPING'
+                      END
+                    WHEN spr.merchant_id = '121904718212276224'
+                      THEN
+                      CASE
+                        WHEN spr.wallet_type = 'LIMITED_POINTS' THEN 'LP_YJ_AUCTION'
+                                                                ELSE 'YJ_AUCTION'
+                      END
+                    WHEN spr.merchant_id IN ('116276717621166080', '223393863419232256')
+                      THEN
+                      CASE
+                        WHEN spr.wallet_type = 'LIMITED_POINTS' THEN 'LP_YJ_FURIMA'
+                                                                ELSE 'YJ_FURIMA'
+                      END
+                    WHEN spr.merchant_id IN (
+                                         '111431655208378368', '114060080704487424',
+                                         '114060943992913920', '372585664189530112',
+                                         '431285892759830528',
+                                         '786110887910981632')
+                      THEN
+                      CASE
+                        WHEN spr.wallet_type = 'LIMITED_POINTS' THEN 'LP_YJ_TRAVEL'
+                                                                ELSE 'YJ_TRAVEL'
+                      END
+                      ELSE
+                      CASE
+                        WHEN spr.wallet_type = 'LIMITED_POINTS' THEN 'LP_YJ_OTHER'
+                                                                ELSE 'YJ_OTHER'
+                      END
+                  END
+                WHEN (spr.service_segments LIKE '%YPremium%' AND spr.service_segments NOT LIKE '%YPremiumSmartLogin%') OR
+                     (spr.service_segments LIKE '%LYPPremium%' AND spr.service_segments NOT LIKE '%LYPPremiumSmartLogin%')
+                                                                                                   THEN 'YJ_OTHER'
+                WHEN
+                  spr.opa_client_id = 'a_k41fEFKZn2'
+                    OR (spr.opa_client_id = 'a_5w4xlyAgt0' AND spr.merchant_id IN ('116278250924498944', '437545756054388736'))
+                    OR lower(spr.campaign_token) LIKE 'ppcd_scrach_%'
+                                                                                                   THEN 'PPCARD_OFFER'
+                WHEN lower(spr.m_campaign_type) = 'coupon'
+                                                                                                   THEN 'STORES_COUPON'
+                WHEN upper(spr.m_operation_type) = 'STAMP_CARD'
+                                                                                                   THEN 'STORES_STAMP_CARD'
+                WHEN spr.campaign_token = 'PPpoint_Welcia_20230904' OR spr.campaign_token LIKE 'PUS_%' OR
+                     spr.merchant_id = '659825917254098944'
+                                                                                                   THEN 'STORES_POINT_UP'
+                WHEN lower(spr.campaign_token) LIKE 'regist_merchant_%'
+                                                                                                   THEN 'STORES_CAMPAIGN'
+                WHEN lower(spr.service_segments) LIKE '%sku_coupon%'
+                                                                                                   THEN 'PRODUCTS_SKU_COUPON'
+                WHEN spr.campaign_token = '207176324606369792' OR spr.campaign_token LIKE 'LYP_%'
+                                                                                                   THEN 'PRODUCTS_LYP_MILEAGE'
+                WHEN spr.campaign_token LIKE 'RG_%'
+                                                                                                   THEN 'PRODUCTS_CAMPAIGN'
+                WHEN spr.campaign_token = '134498752031432704'                                     THEN
+                  CASE
+                    WHEN spr.order_description IN ('ソフトバンクポイントからの交換', 'SBポイントからの交換')
+                      THEN 'YMOBILE_SB_EXCHANGE'
+                      ELSE 'YMOBILE_OTHER'
+                  END
+                WHEN spr.campaign_token LIKE 'YM_%'
+                                                                                                   THEN 'YMOBILE_OTHER'
+                WHEN lower(spr.campaign_token) = 'pocketmoneycampaign_20241219_ym'
+                                                                                                   THEN 'YMOBILE_OKOZUKAI'
+                WHEN spr.campaign_token = '393780168154767360' OR spr.campaign_token LIKE 'LM_%'   THEN 'LINEMO'
+                WHEN spr.merchant_id IN
+                     ('474025120913915904', '469169883723653120', '623156057709338624', '300716554788790272',
+                      '454362983970324480', '575677294487773184', '585706945067859968', '440569949901873152',
+                      '550429479560773632', '412419578895745024', '375662561580605440', '536306411614183424',
+                      '345530204902318080', '263967015011663872', '661003992423727104', '501027460046331904',
+                      '705853338011279360', '311507943588249600', '349969740797681664', '437638862355398656',
+                      '495928195699458048', '516366179830300672', '557552231849918464', '617678892074860544',
+                      '684272231153942528', '275123823923486720', '285866589398130688', '360478851461406720',
+                      '329634144392052736')
+                                                                                                   THEN 'POINT_EXCHANGE'
+                WHEN
+                  (spr.opa_client_id = 'a_aiPw53lhMq' AND spr.merchant_id = '367755354989887490')
+                    OR (spr.opa_client_id = 'a_qf5L7rK3os' AND spr.merchant_id = '385687122624069632')
+                    OR (spr.opa_client_id = 'a_tnIeI8Ocf7' AND spr.merchant_id = '753110725733056512')
+                    OR (spr.opa_client_id = 'a_Qy2svE6qWr' AND spr.merchant_id = '300949608304197632')
+                                                                                                   THEN 'GIFT_CARD'
+                WHEN
+                  spr.opa_client_id = 'm_KEtFdEA5eh'
+                                                                                                   THEN 'PPBANK'
+                                                                                                   ELSE 'OTHER'
+              END AS category
+            FROM santa_promo_rewards spr
+                   LEFT JOIN gov_campaign_mapping gov_mapping
+                             ON lower(spr.campaign_token) = lower(gov_mapping.campaign_token)
+          ),
+          santa_wallet_points AS (
+            SELECT
+              customer_id AS user_id,
+              grant_month,
+              direction,
+              category,
+              sum(cents)  AS points
+            FROM (
+              SELECT customer_id, cents, grant_month, direction, category FROM wallet_transactions
+              UNION ALL
+              SELECT customer_id, cents, grant_month, direction, category FROM santa_promo_rewards_categorized
+            ) combined_santa
+            GROUP BY customer_id,
+                     grant_month,
+                     direction,
+                     category
+          ),
+          ddb_point_aggregated AS (
+            SELECT
+              user_id,
+              grant_month,
+              category,
+              direction,
+              sum(points) AS points,
+              max(timestamp) AS timestamp
+            FROM ddb_point_history
+            GROUP BY user_id,
+                     grant_month,
+                     category,
+                     direction
+          )
+        SELECT
+          santa_wallet_points.user_id     AS s_user_id,
+          santa_wallet_points.grant_month AS s_month,
+          santa_wallet_points.direction   AS s_direction,
+          santa_wallet_points.category    AS s_category,
+          santa_wallet_points.points      AS s_points,
+          ddb_point.user_id               AS a_user_id,
+          ddb_point.grant_month           AS a_month,
+          ddb_point.category              AS a_category,
+          ddb_point.points                AS a_points,
+          ddb_point.direction             AS a_direction,
+          ddb_point.timestamp             AS a_timestamp
+        FROM santa_wallet_points
+               FULL OUTER JOIN ddb_point_aggregated as ddb_point
+                               ON santa_wallet_points.user_id = ddb_point.user_id AND
+                                  santa_wallet_points.grant_month = ddb_point.grant_month AND
+                                  santa_wallet_points.category = ddb_point.category AND
+                                  santa_wallet_points.direction = ddb_point.direction
+        WHERE
+           (ddb_point.user_id IS NULL AND santa_wallet_points.user_id IS NOT NULL)
+        OR (ddb_point.user_id IS NOT NULL AND santa_wallet_points.user_id IS NULL)
+        OR (ddb_point.user_id IS NOT NULL
+          AND santa_wallet_points.user_id IS NOT NULL
+          AND santa_wallet_points.points <> ddb_point.points)
+        ORDER BY santa_wallet_points.user_id
+      metadata_sql_query: "SELECT 'mismatch' as result, count(1) as count FROM result_table"
+      alert_column_name: result
+      alert_keywords: [ mismatch ]
+
+notification:
+  tasks:
+    - notification_id: prod_clm_santa_reward_wallet_vs_point_journey_recon_optimized
+      channels:
+        - type: Slack
+          url: "AQICAHgh/yvPqF/Fq7nqvCa5SrfphctHVjQkOHVJk6QN8l3oggE+asBlzlCe9OjIJGRyByiUAAAAsTCBrgYJKoZIhvcNAQcGoIGgMIGdAgEAMIGXBgkqhkiG9w0BBwEwHgYJYIZIAWUDBAEuMBEEDNwSt9CqEQhQaI/PDQIBEIBqR+TFeN8++iV/p/py4fWUPgcSw1JJVVvReSPPw+msdLGshAQ7bYdlcTdDZJdYGqyR5hUoPnVDXMHOTL/JRx88j4wyr0nkbF9DfYSEdeo+EPtgJmVqPODXAggMimQfZct3CxlhC45LyuqbAQ=="

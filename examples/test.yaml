@@ -1,0 +1,287 @@
+# YAML SQL Syntax Highlighting Test File
+# This file demonstrates various ways SQL can be highlighted in YAML
+
+
+# ==============================================================================
+# TEST CASE 1: Comment marker with block scalar (literal style)
+# ==============================================================================
+spark_job_timeout_mins: 45
+#language=sql
+sql_query: |
+  WITH date_vars AS (
+    SELECT
+      date_format(add_months(to_date('{{ ds }}'), -1), 'yyyy-MM') as month_formatted
+  )
+  SELECT
+    user_id,
+    month     AS grant_month,
+    category,
+    points,
+    'Forward' as direction,
+    timestamp
+  FROM pay2dbrsilver.ddb_clm_point_history
+  CROSS JOIN date_vars
+       lateral view explode(from_json(forward_points, 'map<string,bigint>')) exploded as category, points
+  WHERE
+      campaign_key = 'POINT_JOURNEY'
+  AND type = 'BREAKDOWN'
+  AND month = date_vars.month_formatted
+  AND forward_points IS NOT NULL and forward_points <> '{}'
+
+# ==============================================================================
+# TEST CASE 2: Comment marker with inline string
+# ==============================================================================
+#language=sql
+test_abc: "SELECT * FROM users WHERE active = true"
+
+# ==============================================================================
+# TEST CASE 3: Comment marker with folded block scalar
+# ==============================================================================
+
+folded_query: >
+  SELECT * FROM posts
+  WHERE status = 'published'
+  AND author_id = 123
+  ORDER BY created_at DESC
+
+# ==============================================================================
+# TEST CASE 4: Key pattern matching (no comment) - inline string
+# ==============================================================================
+#language=sql
+test: "DELETE FROM sessions WHERE expires_at < NOW()"
+
+# ==============================================================================
+# TEST CASE 5: Key pattern matching (no comment) - block scalar
+# ==============================================================================
+sql: |
+  UPDATE products
+  SET price = price * 1.1
+  WHERE category = 'electronics'
+
+# ==============================================================================
+# TEST CASE 6: Different key names that should be highlighted
+# ==============================================================================
+sql_statement: "SELECT COUNT(*) FROM orders"
+raw_sql: "INSERT INTO logs (message, level) VALUES ('test', 'INFO')"
+sqlQuery: "CREATE TABLE test (id INT PRIMARY KEY, name VARCHAR(255))"
+
+# ==============================================================================
+# TEST CASE 7: Nested structure with SQL
+# ==============================================================================
+database:
+  migrations:
+    001_init:
+      sql_query: "CREATE TABLE users (id INT, name VARCHAR(255), email VARCHAR(255))"
+    002_add_posts:
+      sql: |
+        CREATE TABLE posts (
+          id INT PRIMARY KEY,
+          user_id INT,
+          title VARCHAR(255),
+          content TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    003_add_indexes:
+      #language=sql
+      migration: |
+        CREATE INDEX idx_posts_user_id ON posts(user_id);
+        CREATE INDEX idx_posts_created_at ON posts(created_at);
+
+# ==============================================================================
+# TEST CASE 8: Array of queries
+# ==============================================================================
+queries:
+  - name: get_active_users
+    sql: "SELECT * FROM users WHERE active = true"
+  - name: get_posts
+    sql_query: "SELECT * FROM posts ORDER BY created_at DESC LIMIT 10"
+  - name: get_comments
+    #language=sql
+    query: "SELECT * FROM comments WHERE post_id = ?"
+
+# ==============================================================================
+# TEST CASE 9: Complex SQL with various features
+# ==============================================================================
+complex_query: |
+  -- Get top users by order count
+  WITH recent_orders AS (
+    SELECT
+      user_id,
+      COUNT(*) as order_count,
+      SUM(total_amount) as total_spent
+    FROM orders
+    WHERE created_at > NOW() - INTERVAL '30 days'
+    GROUP BY user_id
+  )
+  SELECT
+    u.id,
+    u.name,
+    u.email,
+    ro.order_count,
+    ro.total_spent,
+
+    CASE
+      WHEN ro.total_spent > 1000 THEN 'VIP'
+      WHEN ro.total_spent > 500 THEN 'Premium'
+      ELSE 'Standard'
+    END as customer_tier
+  FROM users u
+  INNER JOIN recent_orders ro ON u.id = ro.user_id
+  WHERE u.active = true
+  ORDER BY ro.total_spent DESC
+  LIMIT 10;
+
+# ==============================================================================
+# TEST CASE 10: SQL with string escaping
+# ==============================================================================
+query_with_escapes: "SELECT * FROM users WHERE name = \"O'Brien\" AND status = 'active'"
+
+# ==============================================================================
+# TEST CASE 11: SQL comments and various operators
+# ==============================================================================
+sql: |
+  /* Multi-line comment
+     Fetch user statistics */
+  SELECT
+    u.id,
+    u.name,
+    COUNT(o.id) as order_count,
+    AVG(o.amount) as avg_order -- inline comment
+  FROM users u
+  LEFT JOIN orders o ON u.id = o.user_id
+  WHERE u.created_at >= '2024-01-01'
+    AND (u.status = 'active' OR u.is_premium = true)
+  GROUP BY u.id, u.name
+  HAVING COUNT(o.id) > 5
+
+# ==============================================================================
+# TEST CASE 12: Window functions and CTEs
+# ==============================================================================
+advanced_query: |
+  WITH ranked_products AS (
+    SELECT
+      category,
+      product_name,
+      price,
+      ROW_NUMBER() OVER (PARTITION BY category ORDER BY price DESC) as rank
+    FROM products
+  ),
+  category_stats AS (
+    SELECT
+      category,
+      AVG(price) as avg_price,
+      MAX(price) as max_price,
+      MIN(price) as min_price
+    FROM products
+    GROUP BY category
+  )
+  SELECT
+    rp.category,
+    rp.product_name,
+    rp.price,
+    rp.rank,
+    cs.avg_price,
+    ROUND((rp.price - cs.avg_price) / cs.avg_price * 100, 2) as price_vs_avg_pct
+  FROM ranked_products rp
+  JOIN category_stats cs ON rp.category = cs.category
+  WHERE rp.rank <= 3
+  ORDER BY rp.category, rp.rank;
+
+# ==============================================================================
+# TEST CASE 13: Non-SQL content (should NOT be highlighted)
+# ==============================================================================
+description: "This is just a regular string that happens to mention SELECT"
+config:
+  database: "postgresql"
+  port: 5432
+  host: "localhost"
+
+other_field: "Regular text without SQL"
+
+# ==============================================================================
+# TEST CASE 14: Multiple documents (document separator)
+# ==============================================================================
+---
+simple: "SELECT 1"
+---
+#language=sql
+another: "SELECT 2"
+---
+
+# ==============================================================================
+# TEST CASE 15: Empty values (should not cause issues)
+# ==============================================================================
+sql_query:
+empty_field:
+another_key: value
+
+# ==============================================================================
+# TEST CASE 16: Variant comment markers
+# ==============================================================================
+# lang=sql
+test1: "SELECT * FROM test1"
+
+# language=sql
+test2: "SELECT * FROM test2"
+
+#lang=sql
+test3: "SELECT * FROM test3"
+
+# ==============================================================================
+# TEST CASE 17: DML operations
+# ==============================================================================
+insert_query: |
+  INSERT INTO users (name, email, created_at)
+  VALUES
+    ('John Doe', 'john@example.com', CURRENT_TIMESTAMP),
+    ('Jane Smith', 'jane@example.com', CURRENT_TIMESTAMP)
+  ON CONFLICT (email) DO UPDATE
+  SET name = EXCLUDED.name;
+
+update_query: |
+  UPDATE orders
+  SET
+    status = 'shipped',
+    shipped_at = CURRENT_TIMESTAMP,
+    tracking_number = 'TRACK123456'
+  WHERE id IN (
+    SELECT order_id
+    FROM pending_shipments
+    WHERE warehouse_id = 5
+  )
+  RETURNING id, status, shipped_at;
+
+delete_query: |
+  DELETE FROM logs
+  WHERE created_at < NOW() - INTERVAL '90 days'
+    AND level IN ('DEBUG', 'INFO')
+  RETURNING id;
+
+
+# ==============================================================================
+# TEST CASE 18: DDL operations
+# ==============================================================================
+#language=sql
+create_something: |
+  CREATE TABLE IF NOT EXISTS order_items (
+    id BIGSERIAL PRIMARY KEY,
+    order_id BIGINT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+    product_id BIGINT NOT NULL REFERENCES products(id),
+    quantity INT NOT NULL CHECK (quantity > 0),
+    unit_price DECIMAL(10, 2) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  );
+  
+  CREATE INDEX idx_order_items_order_id ON order_items(order_id);
+  CREATE INDEX idx_order_items_product_id ON order_items(product_id);
+
+alter_table: |
+  ALTER TABLE users
+  ADD COLUMN last_login TIMESTAMP,
+  ADD COLUMN login_count INT DEFAULT 0,
+  ALTER COLUMN email SET NOT NULL,
+  ADD CONSTRAINT unique_email UNIQUE (email);
+
+drop_table: "DROP TABLE IF EXISTS temp_migration_data CASCADE;"

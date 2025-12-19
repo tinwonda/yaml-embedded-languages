@@ -1,0 +1,111 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "YAML SQL Injection",
+  "scopeName": "yaml.sql.injection",
+  "injectionSelector": "L:source.yaml",
+  "patterns": [
+    {
+      "include": "#sql-comment-marker"
+    },
+    {
+      "include": "#sql-key-pattern-block"
+    },
+    {
+      "include": "#sql-key-pattern-inline"
+    }
+  ],
+  "repository": {
+    "sql-comment-marker": {
+      "begin": "^[ \\t]*(#language=sql|#lang=sql|# language=sql|# lang=sql)[ \\t]*$",
+      "end": "^(?=#)|^[ \\t]*$|^(?=[a-zA-Z_][a-zA-Z0-9_-]*[ \\t]*:(?![ \\t]*(\\||>|['\"])))",
+      "beginCaptures": {
+        "1": {
+          "name": "comment.line.number-sign.yaml"
+        }
+      },
+      "patterns": [
+        {
+          "name": "meta.embedded.sql.yaml",
+          "begin": "^[ \\t]*([a-zA-Z_][a-zA-Z0-9_-]*)[ \\t]*:[ \\t]*(\\||>)([-+]?)[ \\t]*$",
+          "end": "^(?![ \\t]+)|^(?=[a-zA-Z_][a-zA-Z0-9_-]*[ \\t]*:)",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.tag.yaml"
+            },
+            "2": {
+              "name": "keyword.control.flow.block-scalar.literal.yaml"
+            },
+            "3": {
+              "name": "keyword.control.flow.block-scalar.chomping-indicator.yaml"
+            }
+          },
+          "contentName": "source.sql",
+          "patterns": [
+            {
+              "include": "source.sql"
+            }
+          ]
+        },
+        {
+          "name": "meta.embedded.sql.yaml",
+          "begin": "^[ \\t]*([a-zA-Z_][a-zA-Z0-9_-]*)[ \\t]*:[ \\t]*(['\"])",
+          "end": "\\2",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.tag.yaml"
+            },
+            "2": {
+              "name": "punctuation.definition.string.begin.yaml"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.yaml"
+            }
+          },
+          "contentName": "source.sql",
+          "patterns": [
+            {
+              "include": "source.sql"
+            }
+          ]
+        }
+      ]
+    },
+    "sql-key-pattern-inline": {
+      "name": "meta.embedded.sql.yaml",
+      "begin": "^[ \\t]*([a-zA-Z_]*[Qq]uery|[a-zA-Z_]*[Ss]ql|[a-zA-Z_]*[Ss]tatement|[a-zA-Z_]*[Tt]able)[ \\t]*:[ \\t]*(['\"])",
+      "end": "\\2",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.tag.yaml"
+        }
+      },
+      "contentName": "source.sql",
+      "patterns": [
+        {
+          "include": "source.sql"
+        }
+      ]
+    },
+    "sql-key-pattern-block": {
+      "name": "meta.embedded.sql.yaml",
+      "begin": "^[ \\t]*([a-zA-Z_]*[Qq]uery|[a-zA-Z_]*[Ss]ql|[a-zA-Z_]*[Ss]tatement|[a-zA-Z_]*[Tt]able)[ \\t]*:[ \\t]*(\\||>)[-+]?[ \\t]*$",
+      "end": "^(?=\\S)",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.tag.yaml"
+        },
+        "2": {
+          "name": "keyword.control.flow.block-scalar.literal.yaml"
+        }
+      },
+      "contentName": "source.sql",
+      "patterns": [
+        {
+          "include": "source.sql"
+        }
+      ]
+    }
+  }
+}

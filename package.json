@@ -1,0 +1,84 @@
+{
+  "name": "yaml-sql-highlight",
+  "displayName": "YAML SQL Syntax Highlighting",
+  "description": "Syntax highlighting for embedded SQL in YAML files",
+  "version": "0.1.9",
+  "publisher": "your-publisher-name",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "yaml",
+    "sql",
+    "syntax highlighting",
+    "embedded languages"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:yaml"
+  ],
+  "contributes": {
+    "grammars": [
+      {
+        "path": "./syntaxes/yaml-sql-injection.json",
+        "scopeName": "yaml.sql.injection",
+        "injectTo": [
+          "source.yaml"
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "YAML SQL Highlighting",
+      "properties": {
+        "yamlSqlHighlight.keyPatterns": {
+          "type": "array",
+          "default": [
+            "sql_query",
+            "sql",
+            "query",
+            "sql_statement",
+            "raw_sql",
+            "sqlQuery"
+          ],
+          "description": "YAML keys that should be treated as SQL",
+          "items": {
+            "type": "string"
+          }
+        },
+        "yamlSqlHighlight.enableCommentMarkers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable #language=sql comment markers for SQL detection"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "16.x",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^5.45.0",
+    "@typescript-eslint/parser": "^5.45.0",
+    "@vscode/test-electron": "^2.2.0",
+    "@vscode/vsce": "^3.7.1",
+    "eslint": "^8.28.0",
+    "typescript": "^4.9.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/yaml-sql-highlight"
+  },
+  "license": "MIT"
+}
