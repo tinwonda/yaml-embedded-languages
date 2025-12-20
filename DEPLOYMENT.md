@@ -31,19 +31,39 @@ If you don't have a publisher account yet:
 
 You need a PAT to publish extensions programmatically:
 
-1. Go to [Azure DevOps](https://dev.azure.com)
-2. Sign in with the same Microsoft account
-3. Click on your profile icon (top right) → **Personal access tokens**
-4. Click **"+ New Token"**
-5. Configure the token:
+#### Method 1: Direct Link (Easiest)
+
+1. **Go directly to**: [https://aex.dev.azure.com/me?mkt=en-US](https://aex.dev.azure.com/me?mkt=en-US)
+2. Sign in with your Microsoft account
+3. Click on **"Personal access tokens"** in the left sidebar
+4. You'll see the "Personal Access Tokens" page
+5. Continue to "Creating the Token" below
+
+#### Method 2: Through Azure DevOps Portal
+
+1. **Go to**: [https://dev.azure.com](https://dev.azure.com)
+2. Sign in with the same Microsoft account you used for the publisher
+3. If prompted, create a new organization (use any name, e.g., "tinwonda-org")
+4. Click on your **profile icon** (top right corner - it shows your initials/avatar)
+5. Click **"Personal access tokens"** from the dropdown menu
+6. Continue to "Creating the Token" below
+
+#### Creating the Token
+
+3. Click **"+ New Token"**
+4. Configure the token:
    - **Name**: `vsce-publish-token` (or any name you prefer)
-   - **Organization**: Select "All accessible organizations"
-   - **Expiration**: Choose an expiration date (recommended: 1 year)
+   - **Organization**: Select **"All accessible organizations"**
+   - **Expiration (UTC)**: Choose an expiration date (recommended: 90 days to 1 year)
    - **Scopes**:
-     - Click **"Show all scopes"**
-     - Find **"Marketplace"** and check **"Manage"**
-6. Click **"Create"**
-7. **IMPORTANT**: Copy the token immediately! You won't be able to see it again.
+     - Click **"Show all scopes"** at the bottom
+     - Scroll down to find **"Marketplace"**
+     - Check **"Manage"** under Marketplace
+5. Click **"Create"** at the bottom
+6. **IMPORTANT**: A dialog will show your token - **copy it immediately**! You won't be able to see it again.
+7. Store it safely (you'll use it in Step 4 below)
+
+**Note**: If you don't have an Azure DevOps organization, the system will automatically create one when you create your first PAT.
 
 ### 3. Update package.json
 
@@ -357,7 +377,7 @@ vsce publish -p YOUR_PAT
 
 - [VSCode Publishing Extensions](https://code.visualstudio.com/api/working-with-extensions/publishing-extension)
 - [Marketplace Publisher Management](https://marketplace.visualstudio.com/manage)
-- [Azure DevOps Personal Access Tokens](https://dev.azure.com)
+- [Azure DevOps Personal Access Tokens](https://aex.dev.azure.com/me?mkt=en-US)
 - [vsce Documentation](https://github.com/microsoft/vscode-vsce)
 
 ## Getting Help

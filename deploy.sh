@@ -136,7 +136,7 @@ if [ -z "$VSCE_PAT" ]; then
     echo "2. You'll be prompted for your token during publish"
     echo ""
     echo "To get a Personal Access Token:"
-    echo "1. Go to https://dev.azure.com/{your-org}/_usersSettings/tokens"
+    echo "1. Go to https://aex.dev.azure.com/me?mkt=en-US"
     echo "2. Create a new token with 'Marketplace > Manage' scope"
     echo "3. Set it as VSCE_PAT environment variable"
     echo ""
