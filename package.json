@@ -3,7 +3,7 @@
   "displayName": "YAML Embedded Languages",
   "description": "Syntax highlighting for embedded languages in YAML files (currently supports SQL, with Python, JavaScript, and more planned)",
   "version": "0.1.9",
-  "publisher": "your-publisher-name",
+  "publisher": "WondaCorp",
   "engines": {
     "vscode": "^1.75.0"
   },
