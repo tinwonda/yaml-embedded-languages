@@ -15,3 +15,5 @@ node_modules/**
 *.vsix
 examples/**
 .claude/**
+deploy.sh
+DEPLOYMENT.md
