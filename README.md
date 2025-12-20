@@ -512,8 +512,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-username/yaml-embedded-languages/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-username/yaml-embedded-languages/discussions)
+- **Issues**: [GitHub Issues](https://github.com/tinwonda/yaml-code-injection-highlight/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/tinwonda/yaml-code-injection-highlight/discussions)
 
 ---
 

@@ -41,6 +41,7 @@ print_header() {
 DRY_RUN=false
 SKIP_TESTS=false
 AUTO_BUMP=""
+MANUAL_VERSION=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -56,6 +57,10 @@ while [[ $# -gt 0 ]]; do
             AUTO_BUMP="${1#--}"
             shift
             ;;
+        --version)
+            MANUAL_VERSION="$2"
+            shift 2
+            ;;
         --help)
             echo "VSCode Marketplace Deployment Script"
             echo ""
@@ -67,12 +72,14 @@ while [[ $# -gt 0 ]]; do
             echo "  --patch         Auto-bump patch version (0.1.9 -> 0.1.10)"
             echo "  --minor         Auto-bump minor version (0.1.9 -> 0.2.0)"
             echo "  --major         Auto-bump major version (0.1.9 -> 1.0.0)"
+            echo "  --version X.Y.Z Set a specific version (e.g., 1.2.3)"
             echo "  --help          Show this help message"
             echo ""
             echo "Examples:"
             echo "  ./deploy.sh --dry-run           # Test packaging without publishing"
             echo "  ./deploy.sh --patch             # Bump patch and publish"
             echo "  ./deploy.sh --minor --skip-tests # Bump minor, skip tests, and publish"
+            echo "  ./deploy.sh --version 2.0.0     # Set version to 2.0.0 and publish"
             exit 0
             ;;
         *)
@@ -118,8 +125,21 @@ print_success "Publisher: $PUBLISHER"
 CURRENT_VERSION=$(node -p "require('./package.json').version")
 print_info "Current version: $CURRENT_VERSION"
 
+# Check for conflicting version options
+if [ -n "$MANUAL_VERSION" ] && [ -n "$AUTO_BUMP" ]; then
+    print_error "Cannot use both --version and --patch/--minor/--major options together!"
+    exit 1
+fi
+
+# Set manual version if specified
+if [ -n "$MANUAL_VERSION" ]; then
+    print_info "Setting version to $MANUAL_VERSION..."
+    npm version $MANUAL_VERSION --no-git-tag-version --allow-same-version
+    NEW_VERSION=$(node -p "require('./package.json').version")
+    print_success "Version set: $CURRENT_VERSION → $NEW_VERSION"
+    CURRENT_VERSION=$NEW_VERSION
 # Auto-bump version if specified
-if [ -n "$AUTO_BUMP" ]; then
+elif [ -n "$AUTO_BUMP" ]; then
     print_info "Auto-bumping $AUTO_BUMP version..."
     npm version $AUTO_BUMP --no-git-tag-version
     NEW_VERSION=$(node -p "require('./package.json').version")
@@ -209,7 +229,7 @@ fi
 print_header "Packaging Extension"
 print_info "Creating .vsix package..."
 if vsce package; then
-    VSIX_FILE="yaml-embedded-languages-${CURRENT_VERSION}.vsix"
+    VSIX_FILE="yaml-code-injection-highlight-${CURRENT_VERSION}.vsix"
     print_success "Package created: $VSIX_FILE"
 
     # Show package size
@@ -248,8 +268,8 @@ else
         fi
     fi
 
-    # Commit version bump if auto-bumped
-    if [ -n "$AUTO_BUMP" ]; then
+    # Commit version bump if auto-bumped or manually set
+    if [ -n "$AUTO_BUMP" ] || [ -n "$MANUAL_VERSION" ]; then
         print_header "Committing Version Bump"
         print_info "Committing package.json changes..."
         git add package.json package-lock.json
@@ -269,12 +289,12 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
     print_header "Deployment Complete! 🎉"
     echo ""
     print_success "Extension published successfully!"
-    print_info "View it at: https://marketplace.visualstudio.com/items?itemName=${PUBLISHER}.yaml-embedded-languages"
+    print_info "View it at: https://marketplace.visualstudio.com/items?itemName=${PUBLISHER}.yaml-code-injection-highlight"
     echo ""
     print_info "Next steps:"
     echo "  1. Check the marketplace listing"
-    echo "  2. Test installation: code --install-extension ${PUBLISHER}.yaml-embedded-languages"
-    if [ -n "$AUTO_BUMP" ]; then
+    echo "  2. Test installation: code --install-extension ${PUBLISHER}.yaml-code-injection-highlight"
+    if [ -n "$AUTO_BUMP" ] || [ -n "$MANUAL_VERSION" ]; then
         echo "  3. Push commits and tags: git push && git push --tags"
     fi
     echo ""

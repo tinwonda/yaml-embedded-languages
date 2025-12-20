@@ -71,11 +71,11 @@ Update the `publisher` field in [package.json](package.json):
 
 ```json
 {
-  "publisher": "your-publisher-id"
+  "publisher": "WondaCorp"
 }
 ```
 
-Replace `your-publisher-id` with the Publisher Name you created in Step 1.
+This should already be set to `WondaCorp` in the package.json file.
 
 ### 4. Set Up Environment Variable (Optional but Recommended)
 
@@ -166,12 +166,31 @@ Skip the test suite (useful if tests are slow or you're confident):
 ./deploy.sh --skip-tests --patch
 ```
 
-#### Manual Version Management
+#### Set Specific Version
 
-If you don't use auto-bumping, update the version manually in `package.json`:
+Override the version to a specific value:
 
 ```bash
-# Then deploy
+# Set version to 2.0.0
+./deploy.sh --version 2.0.0
+
+# Set version and dry-run test
+./deploy.sh --version 1.5.3 --dry-run
+```
+
+This is useful for:
+- Republishing a specific version (e.g., after fixing marketplace listing)
+- Setting a version that doesn't follow the auto-bump pattern
+- Version alignment across multiple extensions
+
+**Note:** You cannot use `--version` together with `--patch`, `--minor`, or `--major`.
+
+#### Manual Version Management
+
+If you prefer to manage versions manually, update the version in `package.json`:
+
+```bash
+# Then deploy without version flags
 ./deploy.sh
 ```
 
@@ -186,6 +205,7 @@ Options:
   --patch         Auto-bump patch version (0.1.9 -> 0.1.10)
   --minor         Auto-bump minor version (0.1.9 -> 0.2.0)
   --major         Auto-bump major version (0.1.9 -> 1.0.0)
+  --version X.Y.Z Set a specific version (e.g., 1.2.3)
   --help          Show this help message
 ```
 
@@ -211,6 +231,13 @@ Options:
 
 ```bash
 ./deploy.sh --patch --skip-tests  # Use with caution!
+```
+
+**Republish with specific version:**
+
+```bash
+# Republish version 1.2.3 (useful for marketplace fixes)
+./deploy.sh --version 1.2.3
 ```
 
 ## What the Deployment Script Does
@@ -255,7 +282,7 @@ The `deploy.sh` script performs these steps in order:
 Your extension will be available at:
 
 ```
-https://marketplace.visualstudio.com/items?itemName={publisher}.yaml-embedded-languages
+https://marketplace.visualstudio.com/items?itemName=WondaCorp.yaml-code-injection-highlight
 ```
 
 It may take a few minutes to appear and up to 1 hour to be fully indexed for search.
@@ -265,7 +292,7 @@ It may take a few minutes to appear and up to 1 hour to be fully indexed for sea
 Test installing the published extension:
 
 ```bash
-code --install-extension {publisher}.yaml-embedded-languages
+code --install-extension WondaCorp.yaml-code-injection-highlight
 ```
 
 ### 3. Push Git Changes
