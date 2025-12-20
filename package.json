@@ -1,8 +1,8 @@
 {
-  "name": "yaml-embedded-languages",
-  "displayName": "YAML Embedded Languages",
+  "name": "yaml-code-injection-highlight",
+  "displayName": "YAML Embedded Code Highlighting",
   "description": "Syntax highlighting for embedded languages in YAML files (currently supports SQL, with Python, JavaScript, and more planned)",
-  "version": "0.1.9",
+  "version": "1.0.0",
   "publisher": "WondaCorp",
   "engines": {
     "vscode": "^1.75.0"
@@ -80,7 +80,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/tinwonda/yaml-embedded-languages"
+    "url": "https://github.com/tinwonda/yaml-code-injection-highlight"
   },
   "license": "MIT"
 }
