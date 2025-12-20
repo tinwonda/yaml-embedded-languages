@@ -1,7 +1,7 @@
 {
-  "name": "yaml-sql-highlight",
-  "displayName": "YAML SQL Syntax Highlighting",
-  "description": "Syntax highlighting for embedded SQL in YAML files",
+  "name": "yaml-embedded-languages",
+  "displayName": "YAML Embedded Languages",
+  "description": "Syntax highlighting for embedded languages in YAML files (currently supports SQL, with Python, JavaScript, and more planned)",
   "version": "0.1.9",
   "publisher": "your-publisher-name",
   "engines": {
@@ -14,7 +14,9 @@
     "yaml",
     "sql",
     "syntax highlighting",
-    "embedded languages"
+    "embedded languages",
+    "code injection",
+    "multi-language"
   ],
   "main": "./out/extension.js",
   "activationEvents": [
@@ -78,7 +80,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-username/yaml-sql-highlight"
+    "url": "https://github.com/your-username/yaml-embedded-languages"
   },
   "license": "MIT"
 }

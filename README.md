@@ -1,6 +1,6 @@
-# YAML SQL Syntax Highlighting
+# YAML Embedded Languages
 
-A Visual Studio Code extension that provides SQL syntax highlighting for embedded SQL code in YAML files. Perfect for database migrations, Spark/Databricks configurations, ETL pipelines, and any YAML-based configuration that contains SQL queries.
+A Visual Studio Code extension that provides syntax highlighting for embedded code in YAML files. **Currently supports SQL**, with Python, JavaScript, Bash, and other languages planned for future releases. Perfect for database migrations, Spark/Databricks configurations, ETL pipelines, and any YAML-based configuration that contains embedded code.
 
 ## Quick Start
 
@@ -8,6 +8,8 @@ Once installed, SQL highlighting works automatically in `.yaml` and `.yml` files
 
 1. Add `#language=sql` comment above any YAML key
 2. Use YAML keys that contain "sql", "query", "statement", or "table" (e.g., `sql_query`, `user_sql`, `my_query`)
+
+> **Note:** Currently only SQL is supported. Support for Python, JavaScript, Bash, and other languages is planned for future releases.
 
 ```yaml
 # Method 1: Comment marker
@@ -252,7 +254,7 @@ data_quality:
 
 1. Open VSCode
 2. Go to Extensions (Ctrl+Shift+X / Cmd+Shift+X)
-3. Search for "YAML SQL Syntax Highlighting"
+3. Search for "YAML Embedded Languages"
 4. Click Install
 
 ### From VSIX Package
@@ -272,7 +274,7 @@ data_quality:
 
 ## Configuration
 
-Access settings via: **File → Preferences → Settings** (or `Cmd/Ctrl + ,`) and search for "YAML SQL".
+Access settings via: **File → Preferences → Settings** (or `Cmd/Ctrl + ,`) and search for "YAML Embedded" or "YAML SQL".
 
 ### Available Settings
 
@@ -418,7 +420,7 @@ The extension leverages VSCode's built-in SQL grammar, providing highlighting fo
 
 4. **No SQL validation**: This extension only provides syntax highlighting, not SQL validation, linting, or IntelliSense/autocomplete.
 
-5. **No multi-language support**: Currently only SQL is supported. Other embedded languages (Python, JavaScript) are not yet supported.
+5. **Limited language support**: Currently only SQL is supported. Python, JavaScript, Bash, and other languages are planned for future releases.
 
 6. **Comment scope**: The `#language=sql` marker affects only the immediately following key-value pair.
 
@@ -468,13 +470,21 @@ npm run package
 
 ## Roadmap / Future Enhancements
 
+### High Priority
+- [ ] **Python support** - Add syntax highlighting for embedded Python code (`#language=python`)
+- [ ] **JavaScript support** - Add syntax highlighting for embedded JavaScript/TypeScript
+- [ ] **Bash/Shell support** - Add syntax highlighting for embedded shell scripts
+- [ ] **Multiple language support** - Support multiple embedded languages in a single YAML file
+
+### Medium Priority
+- [ ] Configurable key patterns through VSCode settings (per language)
 - [ ] Dynamic grammar regeneration when configuration changes (no reload required)
-- [ ] Configurable key patterns through VSCode settings
-- [ ] Support for multiple embedded languages (Python, JavaScript, Bash, etc.)
-- [ ] Content-based auto-detection of SQL (detect SELECT, INSERT, etc.)
+- [ ] Content-based auto-detection (detect language from code patterns)
+- [ ] Support for YAML flow-style syntax
+
+### Low Priority (SQL-specific)
 - [ ] SQL validation and linting integration
 - [ ] IntelliSense and autocomplete for SQL
-- [ ] Support for YAML flow-style syntax
 - [ ] Dialect-specific SQL highlighting (PostgreSQL, MySQL, Oracle, etc.)
 - [ ] Integration with SQL formatting tools
 
@@ -502,8 +512,8 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 ## Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-username/yaml-sql-highlight/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-username/yaml-sql-highlight/discussions)
+- **Issues**: [GitHub Issues](https://github.com/your-username/yaml-embedded-languages/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/your-username/yaml-embedded-languages/discussions)
 
 ---
 
