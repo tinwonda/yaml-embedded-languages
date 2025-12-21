@@ -1,0 +1,32 @@
+# Test file to verify the fix for keys after SQL blocks
+
+importers:
+  - task_id: test_importer
+    notification_id: test_notification
+    class: ImporterJob
+    #language=sql
+    sql_query: >
+      SELECT
+        user_id,
+        name,
+        email
+      FROM users
+      WHERE active = true
+    output_dir: s3://test-bucket/output/path
+    another_key: some_value
+    numeric_key: 123
+
+  - task_id: test_importer_2
+    #language=sql
+    sql_query: |
+      SELECT *
+      FROM orders
+      WHERE status = 'pending'
+    timeout_mins: 60
+    max_retries: 3
+
+# Test without SQL block to ensure normal YAML still works
+normal_config:
+  database: postgresql
+  port: 5432
+  host: localhost

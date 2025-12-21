@@ -48,7 +48,6 @@ importers:
       AND src_account_type = 'INCOMING'
       AND (dst_account_type = 'CASHBACK' OR (dst_account_type = 'SINK' AND dst_user_id = '53'))
       AND date_format(created_at + interval 9 hours, 'yyyy-MM') = date_vars.month_formatted
-
       UNION ALL
 
       SELECT
