@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# VSCode Marketplace Deployment Script
-# This script helps you deploy the YAML Embedded Languages extension to the VSCode Marketplace
+# VSCode Marketplace & Open VSX Deployment Script
+# This script helps you deploy the YAML Embedded Languages extension to both marketplaces
 
 set -e  # Exit on any error
 
@@ -42,6 +42,8 @@ DRY_RUN=false
 SKIP_TESTS=false
 AUTO_BUMP=""
 MANUAL_VERSION=""
+PUBLISH_VSCODE=true
+PUBLISH_OPENVSX=true
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -61,8 +63,18 @@ while [[ $# -gt 0 ]]; do
             MANUAL_VERSION="$2"
             shift 2
             ;;
+        --vscode-only)
+            PUBLISH_VSCODE=true
+            PUBLISH_OPENVSX=false
+            shift
+            ;;
+        --openvsx-only)
+            PUBLISH_VSCODE=false
+            PUBLISH_OPENVSX=true
+            shift
+            ;;
         --help)
-            echo "VSCode Marketplace Deployment Script"
+            echo "VSCode Marketplace & Open VSX Deployment Script"
             echo ""
             echo "Usage: ./deploy.sh [OPTIONS]"
             echo ""
@@ -73,13 +85,21 @@ while [[ $# -gt 0 ]]; do
             echo "  --minor         Auto-bump minor version (0.1.9 -> 0.2.0)"
             echo "  --major         Auto-bump major version (0.1.9 -> 1.0.0)"
             echo "  --version X.Y.Z Set a specific version (e.g., 1.2.3)"
+            echo "  --vscode-only   Publish only to VSCode Marketplace"
+            echo "  --openvsx-only  Publish only to Open VSX Registry"
             echo "  --help          Show this help message"
             echo ""
+            echo "Environment Variables:"
+            echo "  VSCE_PAT        Personal Access Token for VSCode Marketplace"
+            echo "  OVSX_PAT        Personal Access Token for Open VSX Registry"
+            echo ""
             echo "Examples:"
-            echo "  ./deploy.sh --dry-run           # Test packaging without publishing"
-            echo "  ./deploy.sh --patch             # Bump patch and publish"
-            echo "  ./deploy.sh --minor --skip-tests # Bump minor, skip tests, and publish"
-            echo "  ./deploy.sh --version 2.0.0     # Set version to 2.0.0 and publish"
+            echo "  ./deploy.sh --dry-run              # Test packaging without publishing"
+            echo "  ./deploy.sh --patch                # Bump patch and publish to both"
+            echo "  ./deploy.sh --minor --skip-tests   # Bump minor, skip tests, publish to both"
+            echo "  ./deploy.sh --version 2.0.0        # Set version to 2.0.0 and publish to both"
+            echo "  ./deploy.sh --vscode-only --patch  # Publish only to VSCode Marketplace"
+            echo "  ./deploy.sh --openvsx-only --patch # Publish only to Open VSX"
             exit 0
             ;;
         *)
@@ -90,7 +110,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-print_header "YAML Embedded Languages - VSCode Marketplace Deployment"
+print_header "YAML Embedded Languages - Multi-Marketplace Deployment"
+
+# Show which marketplaces will be targeted
+if [ "$PUBLISH_VSCODE" == "true" ] && [ "$PUBLISH_OPENVSX" == "true" ]; then
+    print_info "Target: VSCode Marketplace + Open VSX Registry"
+elif [ "$PUBLISH_VSCODE" == "true" ]; then
+    print_info "Target: VSCode Marketplace only"
+elif [ "$PUBLISH_OPENVSX" == "true" ]; then
+    print_info "Target: Open VSX Registry only"
+fi
 
 # Check if running in the correct directory
 if [ ! -f "package.json" ]; then
@@ -98,12 +127,24 @@ if [ ! -f "package.json" ]; then
     exit 1
 fi
 
-# Check if vsce is installed
-if ! command -v vsce &> /dev/null; then
-    print_warning "vsce (Visual Studio Code Extension Manager) is not installed globally."
-    print_info "Installing vsce..."
-    npm install -g @vscode/vsce
-    print_success "vsce installed successfully"
+# Check if vsce is installed (if needed)
+if [ "$PUBLISH_VSCODE" == "true" ]; then
+    if ! command -v vsce &> /dev/null; then
+        print_warning "vsce (Visual Studio Code Extension Manager) is not installed globally."
+        print_info "Installing vsce..."
+        npm install -g @vscode/vsce
+        print_success "vsce installed successfully"
+    fi
+fi
+
+# Check if ovsx is installed (if needed)
+if [ "$PUBLISH_OPENVSX" == "true" ]; then
+    if ! command -v ovsx &> /dev/null; then
+        print_warning "ovsx (Open VSX CLI) is not installed globally."
+        print_info "Installing ovsx..."
+        npm install -g ovsx
+        print_success "ovsx installed successfully"
+    fi
 fi
 
 # Check publisher name
@@ -147,30 +188,71 @@ elif [ -n "$AUTO_BUMP" ]; then
     CURRENT_VERSION=$NEW_VERSION
 fi
 
-# Check if token is set
-if [ -z "$VSCE_PAT" ]; then
-    print_warning "VSCE_PAT environment variable not set."
-    echo ""
-    echo "You have two options:"
-    echo "1. Set VSCE_PAT environment variable: export VSCE_PAT='your-token'"
-    echo "2. You'll be prompted for your token during publish"
-    echo ""
-    echo "To get a Personal Access Token:"
-    echo "1. Go to https://aex.dev.azure.com/me?mkt=en-US"
-    echo "2. Create a new token with 'Marketplace > Manage' scope"
-    echo "3. Set it as VSCE_PAT environment variable"
-    echo ""
+# Check if tokens are set
+TOKENS_OK=true
 
-    if [ "$DRY_RUN" == "false" ]; then
-        read -p "Continue? (y/n) " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            print_info "Deployment cancelled."
-            exit 0
-        fi
+if [ "$PUBLISH_VSCODE" == "true" ]; then
+    if [ -z "$VSCE_PAT" ]; then
+        print_warning "VSCE_PAT environment variable not set."
+        echo ""
+        echo "To get a Personal Access Token for VSCode Marketplace:"
+        echo "1. Go to https://aex.dev.azure.com/me?mkt=en-US"
+        echo "2. Create a new token with 'Marketplace > Manage' scope"
+        echo "3. Set it as VSCE_PAT environment variable: export VSCE_PAT='your-token'"
+        echo ""
+        TOKENS_OK=false
+    else
+        print_success "VSCE_PAT token found"
     fi
-else
-    print_success "VSCE_PAT token found"
+fi
+
+if [ "$PUBLISH_OPENVSX" == "true" ]; then
+    if [ -z "$OVSX_PAT" ]; then
+        print_warning "OVSX_PAT environment variable not set."
+        echo ""
+        echo "To get a Personal Access Token for Open VSX:"
+        echo "1. Go to https://open-vsx.org/user-settings/tokens"
+        echo "2. Create a new Access Token"
+        echo "3. Set it as OVSX_PAT environment variable: export OVSX_PAT='your-token'"
+        echo ""
+        TOKENS_OK=false
+    else
+        print_success "OVSX_PAT token found"
+    fi
+
+    # Important namespace warning for Open VSX
+    echo ""
+    print_warning "IMPORTANT: Open VSX Namespace Requirement"
+    echo ""
+    echo "Before publishing to Open VSX for the first time, you MUST:"
+    echo ""
+    echo "1. Sign in to Open VSX at https://open-vsx.org"
+    echo "   (Use GitHub, Eclipse, or other OAuth providers)"
+    echo ""
+    echo "2. Create a namespace at https://open-vsx.org/user-settings/namespaces"
+    echo "   - Click 'Create a new namespace'"
+    echo "   - Namespace name must match your publisher: '$PUBLISHER'"
+    echo "   - Use the EXACT same name (case-sensitive)"
+    echo ""
+    echo "3. Common issues if you get 'Invalid access token' error:"
+    echo "   - Namespace doesn't exist or doesn't match publisher name"
+    echo "   - Not signed in when creating the token"
+    echo "   - Token created before the namespace was created"
+    echo "   - Using wrong account (check you're signed in as the namespace owner)"
+    echo ""
+    echo "If you've already created the namespace '$PUBLISHER', you can ignore this."
+    echo ""
+fi
+
+if [ "$TOKENS_OK" == "false" ] && [ "$DRY_RUN" == "false" ]; then
+    echo ""
+    print_warning "Some tokens are missing. You'll be prompted during publish or the publish may fail."
+    read -p "Continue? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_info "Deployment cancelled."
+        exit 0
+    fi
 fi
 
 # Clean previous builds
@@ -249,27 +331,93 @@ if [ "$DRY_RUN" == "true" ]; then
     echo ""
     print_info "To publish, run this script without --dry-run flag"
 else
-    print_header "Publishing to Marketplace"
-    print_info "Publishing version $CURRENT_VERSION..."
+    PUBLISH_SUCCESS=true
+    PUBLISHED_TO=()
 
-    if [ -n "$VSCE_PAT" ]; then
-        if vsce publish -p "$VSCE_PAT"; then
-            print_success "Successfully published to VSCode Marketplace!"
+    # Publish to VSCode Marketplace
+    if [ "$PUBLISH_VSCODE" == "true" ]; then
+        print_header "Publishing to VSCode Marketplace"
+        print_info "Publishing version $CURRENT_VERSION to VSCode Marketplace..."
+
+        if [ -n "$VSCE_PAT" ]; then
+            if vsce publish -p "$VSCE_PAT"; then
+                print_success "Successfully published to VSCode Marketplace!"
+                PUBLISHED_TO+=("VSCode Marketplace")
+            else
+                print_error "Publishing to VSCode Marketplace failed!"
+                PUBLISH_SUCCESS=false
+            fi
         else
-            print_error "Publishing failed!"
-            exit 1
+            if vsce publish; then
+                print_success "Successfully published to VSCode Marketplace!"
+                PUBLISHED_TO+=("VSCode Marketplace")
+            else
+                print_error "Publishing to VSCode Marketplace failed!"
+                PUBLISH_SUCCESS=false
+            fi
         fi
-    else
-        if vsce publish; then
-            print_success "Successfully published to VSCode Marketplace!"
+    fi
+
+    # Publish to Open VSX
+    if [ "$PUBLISH_OPENVSX" == "true" ]; then
+        print_header "Publishing to Open VSX Registry"
+        print_info "Publishing version $CURRENT_VERSION to Open VSX..."
+
+        if [ -n "$OVSX_PAT" ]; then
+            if ovsx publish -p "$OVSX_PAT"; then
+                print_success "Successfully published to Open VSX Registry!"
+                PUBLISHED_TO+=("Open VSX Registry")
+            else
+                print_error "Publishing to Open VSX Registry failed!"
+                echo ""
+                print_warning "Troubleshooting Tips:"
+                echo ""
+                echo "If you see 'Invalid access token' error:"
+                echo "  1. Make sure namespace '$PUBLISHER' exists at:"
+                echo "     https://open-vsx.org/user-settings/namespaces"
+                echo ""
+                echo "  2. Verify you're signed in to the account that owns the namespace"
+                echo ""
+                echo "  3. Create a fresh token AFTER creating the namespace:"
+                echo "     https://open-vsx.org/user-settings/tokens"
+                echo ""
+                echo "  4. Update your token: export OVSX_PAT='your-new-token'"
+                echo ""
+                echo "  5. Verify the namespace name matches EXACTLY (case-sensitive):"
+                echo "     Namespace: $PUBLISHER (must be this exact spelling)"
+                echo ""
+                PUBLISH_SUCCESS=false
+            fi
         else
-            print_error "Publishing failed!"
-            exit 1
+            if ovsx publish; then
+                print_success "Successfully published to Open VSX Registry!"
+                PUBLISHED_TO+=("Open VSX Registry")
+            else
+                print_error "Publishing to Open VSX Registry failed!"
+                echo ""
+                print_warning "Troubleshooting Tips:"
+                echo ""
+                echo "If you see 'Invalid access token' error:"
+                echo "  1. Make sure namespace '$PUBLISHER' exists at:"
+                echo "     https://open-vsx.org/user-settings/namespaces"
+                echo ""
+                echo "  2. Verify you're signed in to the account that owns the namespace"
+                echo ""
+                echo "  3. Create a fresh token AFTER creating the namespace:"
+                echo "     https://open-vsx.org/user-settings/tokens"
+                echo ""
+                echo "  4. Update your token: export OVSX_PAT='your-new-token'"
+                echo ""
+                echo "  5. Verify the namespace name matches EXACTLY (case-sensitive):"
+                echo "     Namespace: $PUBLISHER (must be this exact spelling)"
+                echo ""
+                PUBLISH_SUCCESS=false
+            fi
         fi
     fi
 
     # Commit version bump if auto-bumped or manually set
-    if [ -n "$AUTO_BUMP" ] || [ -n "$MANUAL_VERSION" ]; then
+    if [ "$PUBLISH_SUCCESS" == "true" ] && ([ -n "$AUTO_BUMP" ] || [ -n "$MANUAL_VERSION" ]); then
         print_header "Committing Version Bump"
         print_info "Committing package.json changes..."
         git add package.json package-lock.json
@@ -286,16 +434,32 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
         print_info "Don't forget to push: git push && git push --tags"
     fi
 
-    print_header "Deployment Complete! 🎉"
-    echo ""
-    print_success "Extension published successfully!"
-    print_info "View it at: https://marketplace.visualstudio.com/items?itemName=${PUBLISHER}.yaml-code-injection-highlight"
-    echo ""
-    print_info "Next steps:"
-    echo "  1. Check the marketplace listing"
-    echo "  2. Test installation: code --install-extension ${PUBLISHER}.yaml-code-injection-highlight"
-    if [ -n "$AUTO_BUMP" ] || [ -n "$MANUAL_VERSION" ]; then
-        echo "  3. Push commits and tags: git push && git push --tags"
+    # Print final status
+    if [ "$PUBLISH_SUCCESS" == "true" ]; then
+        print_header "Deployment Complete! 🎉"
+        echo ""
+        print_success "Extension published successfully to: ${PUBLISHED_TO[*]}"
+        echo ""
+
+        if [[ " ${PUBLISHED_TO[@]} " =~ " VSCode Marketplace " ]]; then
+            print_info "VSCode Marketplace: https://marketplace.visualstudio.com/items?itemName=${PUBLISHER}.yaml-code-injection-highlight"
+        fi
+
+        if [[ " ${PUBLISHED_TO[@]} " =~ " Open VSX Registry " ]]; then
+            print_info "Open VSX Registry: https://open-vsx.org/extension/${PUBLISHER}/yaml-code-injection-highlight"
+        fi
+
+        echo ""
+        print_info "Next steps:"
+        echo "  1. Check the marketplace listing(s)"
+        echo "  2. Test installation: code --install-extension ${PUBLISHER}.yaml-code-injection-highlight"
+        if [ -n "$AUTO_BUMP" ] || [ -n "$MANUAL_VERSION" ]; then
+            echo "  3. Push commits and tags: git push && git push --tags"
+        fi
+        echo ""
+    else
+        print_header "Deployment Failed"
+        print_error "Some publications failed. Please check the errors above."
+        exit 1
     fi
-    echo ""
 fi
